@@ -22,8 +22,16 @@ const $$EVENTS = "_$DX_DELEGATE";
 
 export { effect, memo, getOwner, createComponent, Assets as HydrationScript };
 
+function getRegisterRoot(updateRegisterRoot) {
+  const hook = window.__SOLID_DEVTOOLS_GLOBAL_HOOK__;
+  return hook ? hook.getRegisterRoot(updateRegisterRoot) : () => () => {};
+}
+
+let devtoolsRegisterRoot = getRegisterRoot(newRegisterRoot => { devtoolsRegisterRoot = newRegisterRoot });
+
 export function render(code, element, init) {
   let disposer;
+  const devtoolsUnregisterRoot = devtoolsRegisterRoot(element);
   root(dispose => {
     disposer = dispose;
     element === document
@@ -32,6 +40,7 @@ export function render(code, element, init) {
   });
   return () => {
     disposer();
+    devtoolsUnregisterRoot();
     element.textContent = "";
   };
 }
@@ -329,6 +338,13 @@ function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   return prevProps;
 }
 
+function getInsertParentWrapper(updateWrapper) {
+  const hook = window.__SOLID_DEVTOOLS_GLOBAL_HOOK__;
+  return hook ? hook.getInsertParentWrapper(updateWrapper) : p => p;
+}
+
+let wrapInsertParent = getInsertParentWrapper(newWrapper => { wrapInsertParent = newWrapper });
+
 function insertExpression(parent, value, current, marker, unwrapArray) {
   if (sharedConfig.context && !current) current = [...parent.childNodes];
   while (typeof current === "function") current = current();
@@ -336,6 +352,7 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
   const t = typeof value,
     multi = marker !== undefined;
   parent = (multi && current[0] && current[0].parentNode) || parent;
+  parent = wrapInsertParent(parent);
 
   if (t === "string" || t === "number") {
     if (t === "number") value = value.toString();
@@ -439,7 +456,8 @@ function cleanChildren(parent, current, marker, replacement) {
     for (let i = current.length - 1; i >= 0; i--) {
       const el = current[i];
       if (node !== el) {
-        const isParent = el.parentNode === parent;
+        const unwrappedParent = parent instanceof Node ? parent : parent.parent;
+        const isParent = el.parentNode === unwrappedParent;
         if (!inserted && !i)
           isParent ? parent.replaceChild(node, el) : parent.insertBefore(node, marker);
         else isParent && el.remove();
