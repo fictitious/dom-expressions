@@ -6,7 +6,7 @@ import {
   SVGNamespace,
   DelegatedEvents
 } from "./constants";
-import { root, effect, memo, getOwner, createComponent, sharedConfig } from "rxcore";
+import { root, effect, memo, getOwner, createComponent, sharedConfig, devtoolsHookName } from "rxcore";
 import reconcileArrays from "./reconcile";
 export {
   Properties,
@@ -23,8 +23,13 @@ const $$EVENTS = "_$DX_DELEGATE";
 
 export { effect, memo, getOwner, createComponent, Assets as HydrationScript };
 
+let devtoolsRegisterDOMRoot = 
+  window[devtoolsHookName]?.getRegisterDOMRoot(newRegisterDOMRoot => { devtoolsRegisterDOMRoot = newRegisterDOMRoot })
+    || (() => () => {});
+
 export function render(code, element, init) {
   let disposer;
+  const devtoolsUnregisterDOMRoot = devtoolsRegisterDOMRoot(element);
   root(dispose => {
     disposer = dispose;
     element === document
@@ -33,6 +38,7 @@ export function render(code, element, init) {
   });
   return () => {
     disposer();
+    devtoolsUnregisterDOMRoot();
     element.textContent = "";
   };
 }
@@ -349,6 +355,10 @@ function spreadExpression(node, props, prevProps = {}, isSVG, skipChildren) {
   return prevProps;
 }
 
+let wrapInsertParent = 
+  window[devtoolsHookName]?.getInsertParentWrapper(newWrapInsertParent => { wrapInsertParent = newWrapInsertParent })
+    || (p => p);
+
 function insertExpression(parent, value, current, marker, unwrapArray) {
   if (sharedConfig.context && !current) current = [...parent.childNodes];
   while (typeof current === "function") current = current();
@@ -356,6 +366,7 @@ function insertExpression(parent, value, current, marker, unwrapArray) {
   const t = typeof value,
     multi = marker !== undefined;
   parent = (multi && current[0] && current[0].parentNode) || parent;
+  parent = wrapInsertParent(parent);
 
   if (t === "string" || t === "number") {
     if (sharedConfig.context) return current;
@@ -458,7 +469,8 @@ function cleanChildren(parent, current, marker, replacement) {
     for (let i = current.length - 1; i >= 0; i--) {
       const el = current[i];
       if (node !== el) {
-        const isParent = el.parentNode === parent;
+        const unwrappedParent = parent instanceof Node ? parent : parent.parent;
+        const isParent = el.parentNode === unwrappedParent;
         if (!inserted && !i)
           isParent ? parent.replaceChild(node, el) : parent.insertBefore(node, marker);
         else isParent && el.remove();
